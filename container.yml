@@ -1,0 +1,20 @@
+- name: Demo Self-Healing OPA Component
+  hosts: all
+  become: yes
+ 
+  vars:
+    component: redis   # change: redis / opaserver / broker
+    wait_time: 15      # seconds to wait before restart
+ 
+  tasks:
+ 
+  - name: Stop container
+    shell: docker stop {{ component }}
+    ignore_errors: yes
+ 
+  - name: Wait before restart
+    pause:
+      seconds: "{{ wait_time }}"
+ 
+  - name: Start container again
+    shell: docker start {{ component }}
