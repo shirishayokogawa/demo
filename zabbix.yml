@@ -1,0 +1,194 @@
+- name: "Auto Setup: Zabbix Agent + OPA Components"
+
+  hosts: all
+
+  become: yes
+ 
+  vars:
+
+    zabbix_server: "192.168.161.131"
+
+    opa_dir: /home/testopa/Installer/Installer  
+ 
+  tasks:
+ 
+  # ==============================
+
+  # 1. ZABBIX AGENT INSTALLATION
+
+  # ==============================
+ 
+  - name: Fix broken dependencies
+
+    command: apt --fix-broken install -y
+ 
+  - name: Download Zabbix repository package
+
+    get_url:
+
+      url: http://repo.zabbix.com/zabbix/7.0/ubuntu/pool/main/z/zabbix-release/zabbix-release_latest_7.0+ubuntu22.04_all.deb
+
+      dest: /tmp/zabbix-release.deb
+ 
+  - name: Install Zabbix repository
+
+    apt:
+
+      deb: /tmp/zabbix-release.deb
+
+      state: present
+ 
+  - name: Update apt cache
+
+    apt:
+
+      update_cache: yes
+ 
+  - name: Install zabbix-agent2
+
+    apt:
+
+      name: zabbix-agent2
+
+      state: present
+ 
+  - name: Configure Zabbix agent settings
+
+    lineinfile:
+
+      path: /etc/zabbix/zabbix_agent2.conf
+
+      regexp: '^{{ item.key }}='
+
+      line: "{{ item.key }}={{ item.value }}"
+
+    loop:
+
+      - { key: "Server", value: "{{ zabbix_server }}" }
+
+      - { key: "ServerActive", value: "{{ zabbix_server }}" }
+
+      - { key: "Hostname", value: "{{ inventory_hostname }}" }
+ 
+  - name: Set HostMetadata
+
+    lineinfile:
+
+      path: /etc/zabbix/zabbix_agent2.conf
+
+      regexp: '^HostMetadata='
+
+      line: 'HostMetadata=Linux'
+ 
+  - name: Enable and restart Zabbix agent
+
+    service:
+
+      name: zabbix-agent2
+
+      state: restarted
+
+      enabled: yes
+ 
+ 
+  # ==============================
+
+  # 2. DOCKER INSTALLATION
+
+  # ==============================
+ 
+  - name: Install Docker
+
+    apt:
+
+      name: docker.io
+
+      state: present
+ 
+  - name: Install Docker Python dependency
+
+    apt:
+
+      name: python3-docker
+
+      state: present
+ 
+  - name: Start Docker
+
+    systemd:
+
+      name: docker
+
+      enabled: yes
+
+      state: started
+ 
+ 
+  # ==============================
+
+  # 3. REDIS
+
+  # ==============================
+ 
+  - name: Load Redis image
+
+    shell: gunzip -c {{ opa_dir }}/redis/redis_latest.tgz | docker load
+ 
+ 
+  - name: Run Redis container
+
+    shell: docker run -d --name redis redis:latest || docker start redis
+ 
+ 
+  # ==============================
+
+  # 4. OPASERVER
+
+  # ==============================
+ 
+  - name: Load OPAServer image
+
+    shell: docker load < {{ opa_dir }}/yokogawaustc_opaserver-x64_1.02.10.00.tar
+ 
+  - name: Run OPAServer container
+
+    shell: docker run -d --name opaserver yokogawaustc/opaserver-x64:1.02.10.00 || docker start opaserver
+ 
+ 
+  # ==============================
+
+  # 5. BROKER
+
+  # ==============================
+ 
+  - name: Extract Broker package
+
+    shell: tar -xzf {{ opa_dir }}/broker.tar.gz -C {{ opa_dir }}
+ 
+  - name: Load Broker image
+
+    shell: docker load < "{{ opa_dir }}/broker/broker-x64:1.02.00.00.tar"
+ 
+  - name: Run Broker container
+
+    shell: docker run -d --name broker yokogawaustc/broker-x64:1.02.00.00 || docker start broker
+ 
+ 
+  # ==============================
+
+  # 6. SOFTDPAC
+
+  # ==============================
+ 
+  - name: Make SoftdPAC script executable
+
+    file:
+
+      path: "{{ opa_dir }}/SoftdPAC/installe_soft2.sh"
+
+      mode: '0755'
+ 
+  - name: Run SoftdPAC installer
+
+    command: "{{ opa_dir }}/SoftdPAC/installe_soft2.sh ens33"
+ 
